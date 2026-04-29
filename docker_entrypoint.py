@@ -129,11 +129,12 @@ def print_container_help() -> None:
     print("  map      Fetch account catalogs and launch generate_account_map.py interactively.")
     print()
     print("Choose one host runtime directory first, for example /absolute/path/to/redbark-runtime.")
+    print("Choose one host env file path too, for example /absolute/path/to/redbark-sure-sync.env.")
     print("The map command writes the local file /absolute/path/to/redbark-runtime/account_map.json.")
     print()
     print("First-time setup example:")
     print(
-        "  docker run -it --rm --env-file .env -v \"/absolute/path/to/redbark-runtime:/runtime\" "
+        "  docker run -it --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" -v \"/absolute/path/to/redbark-runtime:/runtime\" "
         f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
         "map 30 --mapfile /runtime/account_map.json "
         "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports"
@@ -141,7 +142,7 @@ def print_container_help() -> None:
     print()
     print("Normal sync example:")
     print(
-        "  docker run --rm --env-file .env "
+        "  docker run --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" "
         f"-v \"/absolute/path/to/redbark-runtime/account_map.json:/app/account_map.json:ro\" "
         f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
         f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
@@ -209,13 +210,17 @@ def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
         file=sys.stderr,
     )
     print(
+        "Choose one host env file path too, for example /absolute/path/to/redbark-sure-sync.env.",
+        file=sys.stderr,
+    )
+    print(
         "That first command writes the local file /absolute/path/to/redbark-runtime/account_map.json.",
         file=sys.stderr,
     )
     print(file=sys.stderr)
     print("First-time account-map setup:", file=sys.stderr)
     print(
-        "  docker run -it --rm --env-file .env -v \"/absolute/path/to/redbark-runtime:/runtime\" "
+        "  docker run -it --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" -v \"/absolute/path/to/redbark-runtime:/runtime\" "
         f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
         "map 30 --mapfile /runtime/account_map.json "
         "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports",
@@ -224,7 +229,7 @@ def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
     print(file=sys.stderr)
     print("Then rerun your sync/orchestrator command:", file=sys.stderr)
     print(
-        "  docker run --rm --env-file .env "
+        "  docker run --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" "
         f"-v \"/absolute/path/to/redbark-runtime/account_map.json:/app/account_map.json:ro\" "
         f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
         f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "

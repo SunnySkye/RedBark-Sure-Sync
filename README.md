@@ -172,9 +172,35 @@ On Linux/macOS shells, start by choosing one path you actually want to keep usin
 
 ```sh
 export RUNTIME_DIR="$HOME/redbark-sure-sync"
+export ENV_FILE="$HOME/redbark-sure-sync.env"
 ```
 
 If you are using PowerShell, choose an equivalent absolute path such as `$RUNTIME_DIR = "$HOME\redbark-sure-sync"`.
+
+### Docker Env File
+
+Before running the first Docker command, create the env file at `$ENV_FILE`.
+
+If you keep the commands exactly as written below, that means creating this host file:
+
+```text
+$HOME/redbark-sure-sync.env
+```
+
+Example contents:
+
+```env
+REDBARK_API_KEY=your_redbark_api_key
+SURE_BASE_URL=https://your-sure-instance.example
+SURE_API_KEY=your_sure_api_key
+DUPLICATE_AUDIT_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+Notes:
+
+- `DUPLICATE_AUDIT_WEBHOOK_URL` is optional.
+- The env file can live anywhere on the host as long as `--env-file` points to that exact path.
+- If you prefer a different location, change `ENV_FILE` and keep using the updated value in both Docker commands.
 
 ### 1. Generate the Map File
 
@@ -184,7 +210,7 @@ Run the container in interactive `map` mode:
 
 ```sh
 mkdir -p "$RUNTIME_DIR/logs"
-docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 What this does:
@@ -202,13 +228,13 @@ What this does:
 Mount that same local map file back into the container:
 
 ```sh
-docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
+docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
 ```
 
 Dry run:
 
 ```sh
-docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
+docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
 ```
 
 What this does:
@@ -231,7 +257,7 @@ After step 1 completes, your host runtime directory should contain:
 
 The scheduled sync command in step 2 must mount that exact local file path back into `/app/account_map.json`.
 
-Your `.env` file still stays outside the runtime directory and is passed through Docker with `--env-file .env`.
+Your env file stays outside the runtime directory and is passed through Docker with `--env-file "$ENV_FILE"`.
 
 For cron, systemd, or other schedulers, prefer the fully expanded absolute path instead of relying on `$RUNTIME_DIR` being set in that environment.
 
@@ -247,11 +273,11 @@ If you use the local image instead of GHCR, the same two commands become:
 
 ```sh
 mkdir -p "$RUNTIME_DIR/logs"
-docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 ```sh
-docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
+docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
 ```
 
 Docker cannot open a host file picker for you. To use a different local path, set `RUNTIME_DIR` to the host directory you want and keep `--mapfile` pointed at the in-container path.
