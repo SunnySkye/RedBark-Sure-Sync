@@ -79,24 +79,23 @@ This file is optimized for future LLMs and automation working in this repository
 - Recommended Docker command for the first-time map flow:
 
 ```sh
-mkdir -p "$PWD/redbark-runtime/logs"
-docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+export RUNTIME_DIR="$HOME/redbark-sure-sync"
+mkdir -p "$RUNTIME_DIR/logs"
+docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
-Recommended Docker command for scheduled syncs:
-The local map file created by that command is `"$PWD/redbark-runtime/account_map.json"`.
+The local map file created by that command is `"$RUNTIME_DIR/account_map.json"`.
 
 Recommended Docker command for scheduled syncs:
 
 ```sh
-docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
+docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
 ```
 
 Recommended Docker dry-run command:
-Recommended Docker dry-run command:
 
 ```sh
-docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
+docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
 ```
 
 ## Key Artifacts

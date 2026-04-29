@@ -166,17 +166,25 @@ The flow is:
 
 Choose one host runtime directory first. That directory holds the local `account_map.json`, `exports/`, `sure_exports/`, and `logs/` folders used by both commands.
 
-The examples below use macOS/Linux shell syntax. If you are using PowerShell, replace `"$PWD/redbark-runtime"` with `${PWD}\redbark-runtime`.
+The examples below use a deliberate runtime directory choice instead of the shell's current working directory.
+
+On Linux/macOS shells, start by choosing one path you actually want to keep using:
+
+```sh
+export RUNTIME_DIR="$HOME/redbark-sure-sync"
+```
+
+If you are using PowerShell, choose an equivalent absolute path such as `$RUNTIME_DIR = "$HOME\redbark-sure-sync"`.
 
 ### 1. Generate the Map File
 
-The example below uses a dedicated local runtime directory at `"$PWD/redbark-runtime"`.
+The example below uses the local runtime directory stored in `$RUNTIME_DIR`.
 
 Run the container in interactive `map` mode:
 
 ```sh
-mkdir -p "$PWD/redbark-runtime/logs"
-docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+mkdir -p "$RUNTIME_DIR/logs"
+docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 What this does:
@@ -184,23 +192,23 @@ What this does:
 - runs the container in interactive `map` mode
 - fetches the RedBark and Sure account catalogs needed for mapping
 - launches the interactive account mapper
-- writes the local file `"$PWD/redbark-runtime/account_map.json"`
-- stores bootstrap exports in `"$PWD/redbark-runtime/exports"`
-- stores Sure bootstrap exports in `"$PWD/redbark-runtime/sure_exports"`
-- stores logs in `"$PWD/redbark-runtime/logs"`
+- writes the local file `"$RUNTIME_DIR/account_map.json"`
+- stores bootstrap exports in `"$RUNTIME_DIR/exports"`
+- stores Sure bootstrap exports in `"$RUNTIME_DIR/sure_exports"`
+- stores logs in `"$RUNTIME_DIR/logs"`
 
 ### 2. Run the Scheduled Sync
 
 Mount that same local map file back into the container:
 
 ```sh
-docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
+docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
 ```
 
 Dry run:
 
 ```sh
-docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
+docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
 ```
 
 What this does:
@@ -216,14 +224,16 @@ This is the intended command to hand to cron, launchd, or Task Scheduler.
 
 After step 1 completes, your host runtime directory should contain:
 
-- `redbark-runtime/account_map.json`
-- `redbark-runtime/exports/`
-- `redbark-runtime/sure_exports/`
-- `redbark-runtime/logs/`
+- `$RUNTIME_DIR/account_map.json`
+- `$RUNTIME_DIR/exports/`
+- `$RUNTIME_DIR/sure_exports/`
+- `$RUNTIME_DIR/logs/`
 
 The scheduled sync command in step 2 must mount that exact local file path back into `/app/account_map.json`.
 
 Your `.env` file still stays outside the runtime directory and is passed through Docker with `--env-file .env`.
+
+For cron, systemd, or other schedulers, prefer the fully expanded absolute path instead of relying on `$RUNTIME_DIR` being set in that environment.
 
 `account_map.json` remains a runtime artifact. It is intentionally ignored by git and should stay outside published release contents.
 
@@ -236,15 +246,15 @@ docker build -t redbark-sure-sync .
 If you use the local image instead of GHCR, the same two commands become:
 
 ```sh
-mkdir -p "$PWD/redbark-runtime/logs"
-docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+mkdir -p "$RUNTIME_DIR/logs"
+docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 ```sh
-docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
+docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
 ```
 
-Docker cannot open a host file picker for you. To use a different local path, replace every `"$PWD/redbark-runtime"` with your chosen host directory and keep `--mapfile` pointed at the in-container path.
+Docker cannot open a host file picker for you. To use a different local path, set `RUNTIME_DIR` to the host directory you want and keep `--mapfile` pointed at the in-container path.
 
 If you prefer not to use `--env-file`, you can pass the environment variables directly with `-e`, but `--env-file .env` remains the intended path.
 

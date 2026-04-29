@@ -55,25 +55,26 @@ jobs:
           body: |
             ## Docker
 
-            Choose one host runtime directory first. The examples below use `"$PWD/redbark-runtime"` on macOS/Linux shells. On PowerShell, replace that path with `${PWD}\redbark-runtime`.
+            Choose one host runtime directory first. On macOS/Linux shells, an example is `export RUNTIME_DIR="$HOME/redbark-sure-sync"`. On PowerShell, choose an equivalent absolute path.
 
             Generate the account map once:
 
             ```sh
-            mkdir -p "$PWD/redbark-runtime/logs"
-            docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+            export RUNTIME_DIR="$HOME/redbark-sure-sync"
+            mkdir -p "$RUNTIME_DIR/logs"
+            docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
             ```
 
-            That command writes the local file `"$PWD/redbark-runtime/account_map.json"`.
+            That command writes the local file `"$RUNTIME_DIR/account_map.json"`.
 
             Then run the scheduled-safe sync command with the same `.env` file and the saved map file:
 
             ```sh
-            docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --mapfile /app/account_map.json
+            docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --mapfile /app/account_map.json
             ```
 
             Dry run:
 
             ```sh
-            docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --mapfile /app/account_map.json --dry-run
+            docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --mapfile /app/account_map.json --dry-run
             ```
