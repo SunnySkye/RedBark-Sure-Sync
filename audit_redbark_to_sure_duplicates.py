@@ -61,7 +61,9 @@ def parse_args() -> argparse.Namespace:
         description="Audit Sure Finance for duplicate RedBark sync markers."
     )
     parser.add_argument(
+        "--mapfile",
         "--map-file",
+        dest="map_file",
         default=str(DEFAULT_MAP_FILE),
         help="Path to the interactive account map JSON. Default: account_map.json",
     )

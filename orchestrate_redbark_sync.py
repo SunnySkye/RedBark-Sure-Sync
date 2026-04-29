@@ -123,7 +123,9 @@ def parse_args() -> argparse.Namespace:
         help="Number of days back from now to fetch from RedBark before syncing. Default: 1.",
     )
     parser.add_argument(
+        "--mapfile",
         "--map-file",
+        dest="map_file",
         default=str(DEFAULT_MAP_FILE),
         help="Path to the required account map JSON file. Default: account_map.json",
     )

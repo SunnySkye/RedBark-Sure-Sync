@@ -44,7 +44,6 @@ Notes:
 - `sync_redbark_to_sure.py`: Read the RedBark export files and create missing Sure transactions.
 - `audit_redbark_to_sure_duplicates.py`: Check mapped Sure accounts for duplicate RedBark sync markers.
 - `orchestrate_redbark_sync.py`: Run export, sync, and duplicate audit in sequence.
-- `docker_runner.py`: Host-side helper that runs the Docker image with `--envfile` and `--mapfile` inputs instead of manual bind mounts.
 - `exports/`: RedBark account catalog and per-account transaction exports.
 - `sure_exports/`: Sure account catalog and per-account transaction exports.
 - `logs/`: Per-script log files and the orchestrator lock file.
@@ -155,30 +154,24 @@ Scheduler recommendations:
 
 The repository includes a `Dockerfile` for local image builds and a GitHub release workflow that publishes a ready-to-run image to GitHub Container Registry.
 
-The recommended Docker operator path is the host-side wrapper in `docker_runner.py`. It exposes the two inputs people actually care about:
+The supported Docker operator path is two raw `docker run` commands. You do not need a host-side Python wrapper.
 
-- `--envfile` for the host `.env` file
-- `--mapfile` for the host account map file used by scheduled sync runs
+- `--env-file` stays a Docker option for loading the host `.env` file.
+- `--mapfile` is a container argument that tells the sync which mounted map file to use.
 
-The wrapper builds the bind mounts for you, so the flow becomes:
+The flow is:
 
 1. generate the map file once
 2. schedule the sync command with the same `.env` file and saved map file
 
 ### 1. Generate the Map File
 
-Run the wrapper in `map` mode:
+Choose a host runtime directory first. The example below uses the current directory so the generated files land beside your shell session.
 
-```text
-python docker_runner.py map --envfile .env
-```
+Run the container in interactive `map` mode:
 
-If you omit `--mapfile`, the wrapper prompts for the save location.
-
-If you want to choose the path up front:
-
-```text
-python docker_runner.py map --envfile .env --mapfile /path/to/runtime/account_map.json
+```powershell
+docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 What this does:
@@ -186,58 +179,43 @@ What this does:
 - runs the container in interactive `map` mode
 - fetches the RedBark and Sure account catalogs needed for mapping
 - launches the interactive account mapper
-- writes the generated map file to the host path you chose
-- stores bootstrap `exports/`, `sure_exports/`, and `logs/` next to that map file on the host
+- writes the generated map file to the mounted host path at `account_map.json`
+- stores bootstrap `exports/`, `sure_exports/`, and `logs/` on the host
 
 ### 2. Run the Scheduled Sync
 
-Run the wrapper in `sync` mode:
+Run the scheduled-safe orchestrator with the saved map file:
 
-```text
-python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json
+```powershell
+docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
 ```
 
 Dry run:
 
-```text
-python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json --dry-run
+```powershell
+docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
 ```
 
 What this does:
 
 - mounts the selected map file read-only into the container
-- uses the map file's parent directory for host `exports/` and `logs/`
+- keeps `exports/` and `logs/` on the host
 - runs `orchestrate_redbark_sync.py` inside the container
-- keeps the scheduled command down to `.env` plus `--mapfile`
+- makes the scheduled command explicit about both the env file and the map file
 
 This is the intended command to hand to cron, launchd, or Task Scheduler.
 
 ### Runtime Files
 
-The wrapper treats the map file's parent directory as the Docker runtime directory.
+Before running the scheduled sync, make sure the host has these runtime files or directories:
 
-If your map file is stored at `/path/to/runtime/account_map.json`, the wrapper will keep these artifacts alongside it:
-
-- `/path/to/runtime/account_map.json`
-- `/path/to/runtime/exports/`
-- `/path/to/runtime/sure_exports/` for the first-time map command
-- `/path/to/runtime/logs/`
+- `.env`
+- `account_map.json`
+- `exports/`
+- `logs/`
+- `sure_exports/` only matters for the first-time map command
 
 `account_map.json` remains a runtime artifact. It is intentionally ignored by git and should stay outside published release contents.
-
-### Choosing an Image
-
-The wrapper defaults to `ghcr.io/sunnyskye/redbark-sure-sync:latest`.
-
-To use a local build or a pinned tag, pass `--image`:
-
-```text
-python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json --image redbark-sure-sync
-```
-
-### Advanced: Raw `docker run`
-
-If you prefer to call Docker directly, the container still supports the lower-level commands.
 
 Build the image locally:
 
@@ -245,17 +223,17 @@ Build the image locally:
 docker build -t redbark-sure-sync .
 ```
 
-Generate the map directly:
+If you use the local image instead of GHCR, the same two commands become:
 
 ```powershell
-docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
-
-Run the sync directly:
 
 ```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --map-file /app/account_map.json
+docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
 ```
+
+Docker cannot open a host file picker for you. To choose a different map-file location, change the host side of the bind mount and keep `--mapfile` pointed at the in-container path.
 
 If you prefer not to use `--env-file`, you can pass the environment variables directly with `-e`, but `--env-file .env` remains the intended path.
 

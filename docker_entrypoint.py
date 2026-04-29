@@ -71,7 +71,9 @@ def parse_map_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--mapfile",
         "--map-file",
+        dest="map_file",
         default=str(DEFAULT_BOOTSTRAP_MAP_FILE),
         help=(
             "Path where the generated account map JSON will be written. "
@@ -130,7 +132,7 @@ def print_container_help() -> None:
     print(
         "  docker run -it --rm --env-file .env -v \"${PWD}:/runtime\" "
         f"-v \"${{PWD}}\\logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
-        "map 30 --map-file /runtime/account_map.json "
+        "map 30 --mapfile /runtime/account_map.json "
         "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports"
     )
     print()
@@ -139,7 +141,7 @@ def print_container_help() -> None:
         "  docker run --rm --env-file .env "
         f"-v \"${{PWD}}\\account_map.json:/app/account_map.json:ro\" "
         f"-v \"${{PWD}}\\exports:/app/exports\" -v \"${{PWD}}\\logs:/app/logs\" "
-        f"{IMAGE_REFERENCE_HINT} 4"
+        f"{IMAGE_REFERENCE_HINT} 4 --mapfile /app/account_map.json"
     )
 
 
@@ -179,7 +181,7 @@ def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
     print(
         "  docker run -it --rm --env-file .env -v \"${PWD}:/runtime\" "
         f"-v \"${{PWD}}\\logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
-        "map 30 --map-file /runtime/account_map.json "
+        "map 30 --mapfile /runtime/account_map.json "
         "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports",
         file=sys.stderr,
     )
@@ -189,13 +191,13 @@ def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
         "  docker run --rm --env-file .env "
         f"-v \"${{PWD}}\\account_map.json:/app/account_map.json:ro\" "
         f"-v \"${{PWD}}\\exports:/app/exports\" -v \"${{PWD}}\\logs:/app/logs\" "
-        f"{IMAGE_REFERENCE_HINT} {format_sync_args(sync_args)}",
+        f"{IMAGE_REFERENCE_HINT} {format_sync_args(sync_args)} --mapfile /app/account_map.json",
         file=sys.stderr,
     )
     print(file=sys.stderr)
     print(
         "If you want to store runtime files somewhere else, mount that host folder to "
-        "/runtime and keep --map-file, --redbark-export-dir, and --sure-export-dir under /runtime.",
+        "/runtime and keep --mapfile, --redbark-export-dir, and --sure-export-dir under /runtime.",
         file=sys.stderr,
     )
 
@@ -255,7 +257,11 @@ def run_map_mode(project_root: Path, argv: list[str]) -> int:
 
 
 def run_sync_mode(project_root: Path, argv: list[str]) -> int:
-    map_file_arg = option_value(argv, "--map-file") or str(DEFAULT_SYNC_MAP_FILE)
+    map_file_arg = (
+        option_value(argv, "--mapfile")
+        or option_value(argv, "--map-file")
+        or str(DEFAULT_SYNC_MAP_FILE)
+    )
     map_file = resolve_path(project_root, map_file_arg)
     if not map_file.is_file():
         print_missing_map_guidance(map_file, argv)
