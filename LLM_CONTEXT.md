@@ -61,7 +61,7 @@ This file is optimized for future LLMs and automation working in this repository
 - `Dockerfile` packages the orchestrator as the container entrypoint.
 - Container entrypoint: `python docker_entrypoint.py`
 - GitHub Actions release workflow publishes the image to `ghcr.io/sunnyskye/redbark-sure-sync` on version tags.
-- Recommended runtime model: run `docker run ... image map ... --mapfile /runtime/account_map.json` once, then schedule `docker run ... image 4 --mapfile /app/account_map.json`.
+- Recommended runtime model: choose one host runtime directory, write `account_map.json` there with `docker run ... image map ... --mapfile /runtime/account_map.json`, then mount that same local file into the scheduled sync command with `--mapfile /app/account_map.json`.
 - `--env-file` is the Docker CLI input for secrets; `--mapfile` is the container argument for the mounted account map file.
 - First-time setup uses `docker_entrypoint.py map` to bootstrap account catalogs and launch `generate_account_map.py` interactively.
 - Runtime mounts should include:
@@ -76,22 +76,27 @@ This file is optimized for future LLMs and automation working in this repository
 - `.dockerignore` excludes secrets, logs, exports, caches, and local virtualenvs from the build context.
 - `account_map.json` is a runtime artifact and should not be committed.
 
-Recommended Docker command for the first-time map flow:
+- Recommended Docker command for the first-time map flow:
 
-```powershell
-docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+```sh
+mkdir -p "$PWD/redbark-runtime/logs"
+docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 Recommended Docker command for scheduled syncs:
+The local map file created by that command is `"$PWD/redbark-runtime/account_map.json"`.
 
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
+Recommended Docker command for scheduled syncs:
+
+```sh
+docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
 ```
 
 Recommended Docker dry-run command:
+Recommended Docker dry-run command:
 
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
+```sh
+docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
 ```
 
 ## Key Artifacts

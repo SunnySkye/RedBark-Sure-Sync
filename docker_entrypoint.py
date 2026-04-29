@@ -128,10 +128,13 @@ def print_container_help() -> None:
     print("  default  Run orchestrate_redbark_sync.py with the provided arguments.")
     print("  map      Fetch account catalogs and launch generate_account_map.py interactively.")
     print()
+    print("Choose one host runtime directory first, for example /absolute/path/to/redbark-runtime.")
+    print("The map command writes the local file /absolute/path/to/redbark-runtime/account_map.json.")
+    print()
     print("First-time setup example:")
     print(
-        "  docker run -it --rm --env-file .env -v \"${PWD}:/runtime\" "
-        f"-v \"${{PWD}}\\logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
+        "  docker run -it --rm --env-file .env -v \"/absolute/path/to/redbark-runtime:/runtime\" "
+        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
         "map 30 --mapfile /runtime/account_map.json "
         "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports"
     )
@@ -139,8 +142,9 @@ def print_container_help() -> None:
     print("Normal sync example:")
     print(
         "  docker run --rm --env-file .env "
-        f"-v \"${{PWD}}\\account_map.json:/app/account_map.json:ro\" "
-        f"-v \"${{PWD}}\\exports:/app/exports\" -v \"${{PWD}}\\logs:/app/logs\" "
+        f"-v \"/absolute/path/to/redbark-runtime/account_map.json:/app/account_map.json:ro\" "
+        f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
+        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
         f"{IMAGE_REFERENCE_HINT} 4 --mapfile /app/account_map.json"
     )
 
@@ -163,7 +167,30 @@ def option_value(args: list[str], option_name: str) -> str | None:
     return None
 
 
+def without_options(args: list[str], option_names: set[str]) -> list[str]:
+    cleaned_args: list[str] = []
+    skip_next = False
+
+    for argument in args:
+        if skip_next:
+            skip_next = False
+            continue
+
+        if argument in option_names:
+            skip_next = True
+            continue
+
+        if any(argument.startswith(f"{name}=") for name in option_names):
+            continue
+
+        cleaned_args.append(argument)
+
+    return cleaned_args
+
+
 def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
+    rerun_args = without_options(sync_args, {"--mapfile", "--map-file"})
+
     print(f"Account map file not found: {map_file}", file=sys.stderr)
     print(file=sys.stderr)
     print(
@@ -177,10 +204,19 @@ def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
         file=sys.stderr,
     )
     print(file=sys.stderr)
-    print("First-time account-map setup in PowerShell:", file=sys.stderr)
     print(
-        "  docker run -it --rm --env-file .env -v \"${PWD}:/runtime\" "
-        f"-v \"${{PWD}}\\logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
+        "Choose one host runtime directory first, for example /absolute/path/to/redbark-runtime.",
+        file=sys.stderr,
+    )
+    print(
+        "That first command writes the local file /absolute/path/to/redbark-runtime/account_map.json.",
+        file=sys.stderr,
+    )
+    print(file=sys.stderr)
+    print("First-time account-map setup:", file=sys.stderr)
+    print(
+        "  docker run -it --rm --env-file .env -v \"/absolute/path/to/redbark-runtime:/runtime\" "
+        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
         "map 30 --mapfile /runtime/account_map.json "
         "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports",
         file=sys.stderr,
@@ -189,15 +225,16 @@ def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
     print("Then rerun your sync/orchestrator command:", file=sys.stderr)
     print(
         "  docker run --rm --env-file .env "
-        f"-v \"${{PWD}}\\account_map.json:/app/account_map.json:ro\" "
-        f"-v \"${{PWD}}\\exports:/app/exports\" -v \"${{PWD}}\\logs:/app/logs\" "
-        f"{IMAGE_REFERENCE_HINT} {format_sync_args(sync_args)} --mapfile /app/account_map.json",
+        f"-v \"/absolute/path/to/redbark-runtime/account_map.json:/app/account_map.json:ro\" "
+        f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
+        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
+        f"{IMAGE_REFERENCE_HINT} {format_sync_args(rerun_args)} --mapfile /app/account_map.json",
         file=sys.stderr,
     )
     print(file=sys.stderr)
     print(
-        "If you want to store runtime files somewhere else, mount that host folder to "
-        "/runtime and keep --mapfile, --redbark-export-dir, and --sure-export-dir under /runtime.",
+        "If you want a different local path, replace every /absolute/path/to/redbark-runtime "
+        "with your chosen host directory.",
         file=sys.stderr,
     )
 

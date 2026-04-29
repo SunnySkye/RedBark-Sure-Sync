@@ -164,14 +164,19 @@ The flow is:
 1. generate the map file once
 2. schedule the sync command with the same `.env` file and saved map file
 
+Choose one host runtime directory first. That directory holds the local `account_map.json`, `exports/`, `sure_exports/`, and `logs/` folders used by both commands.
+
+The examples below use macOS/Linux shell syntax. If you are using PowerShell, replace `"$PWD/redbark-runtime"` with `${PWD}\redbark-runtime`.
+
 ### 1. Generate the Map File
 
-Choose a host runtime directory first. The example below uses the current directory so the generated files land beside your shell session.
+The example below uses a dedicated local runtime directory at `"$PWD/redbark-runtime"`.
 
 Run the container in interactive `map` mode:
 
-```powershell
-docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+```sh
+mkdir -p "$PWD/redbark-runtime/logs"
+docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 What this does:
@@ -179,21 +184,23 @@ What this does:
 - runs the container in interactive `map` mode
 - fetches the RedBark and Sure account catalogs needed for mapping
 - launches the interactive account mapper
-- writes the generated map file to the mounted host path at `account_map.json`
-- stores bootstrap `exports/`, `sure_exports/`, and `logs/` on the host
+- writes the local file `"$PWD/redbark-runtime/account_map.json"`
+- stores bootstrap exports in `"$PWD/redbark-runtime/exports"`
+- stores Sure bootstrap exports in `"$PWD/redbark-runtime/sure_exports"`
+- stores logs in `"$PWD/redbark-runtime/logs"`
 
 ### 2. Run the Scheduled Sync
 
-Run the scheduled-safe orchestrator with the saved map file:
+Mount that same local map file back into the container:
 
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
+```sh
+docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
 ```
 
 Dry run:
 
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
+```sh
+docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
 ```
 
 What this does:
@@ -207,33 +214,37 @@ This is the intended command to hand to cron, launchd, or Task Scheduler.
 
 ### Runtime Files
 
-Before running the scheduled sync, make sure the host has these runtime files or directories:
+After step 1 completes, your host runtime directory should contain:
 
-- `.env`
-- `account_map.json`
-- `exports/`
-- `logs/`
-- `sure_exports/` only matters for the first-time map command
+- `redbark-runtime/account_map.json`
+- `redbark-runtime/exports/`
+- `redbark-runtime/sure_exports/`
+- `redbark-runtime/logs/`
+
+The scheduled sync command in step 2 must mount that exact local file path back into `/app/account_map.json`.
+
+Your `.env` file still stays outside the runtime directory and is passed through Docker with `--env-file .env`.
 
 `account_map.json` remains a runtime artifact. It is intentionally ignored by git and should stay outside published release contents.
 
 Build the image locally:
 
-```powershell
+```sh
 docker build -t redbark-sure-sync .
 ```
 
 If you use the local image instead of GHCR, the same two commands become:
 
-```powershell
-docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+```sh
+mkdir -p "$PWD/redbark-runtime/logs"
+docker run -it --rm --env-file .env -v "$PWD/redbark-runtime:/runtime" -v "$PWD/redbark-runtime/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
+```sh
+docker run --rm --env-file .env -v "$PWD/redbark-runtime/account_map.json:/app/account_map.json:ro" -v "$PWD/redbark-runtime/exports:/app/exports" -v "$PWD/redbark-runtime/logs:/app/logs" redbark-sure-sync 4 --mapfile /app/account_map.json
 ```
 
-Docker cannot open a host file picker for you. To choose a different map-file location, change the host side of the bind mount and keep `--mapfile` pointed at the in-container path.
+Docker cannot open a host file picker for you. To use a different local path, replace every `"$PWD/redbark-runtime"` with your chosen host directory and keep `--mapfile` pointed at the in-container path.
 
 If you prefer not to use `--env-file`, you can pass the environment variables directly with `-e`, but `--env-file .env` remains the intended path.
 
