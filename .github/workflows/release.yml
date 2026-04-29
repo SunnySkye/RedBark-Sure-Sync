@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Derive lowercase owner
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and publish container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Docker
+
+            Pull and run the published image without a local build step:
+
+            ```powershell
+            docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4
+            ```
+
+            Dry run:
+
+            ```powershell
+            docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --dry-run
+            ```
