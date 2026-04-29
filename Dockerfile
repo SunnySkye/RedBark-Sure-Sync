@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    REDBARK_SURE_SYNC_IMAGE_HINT=ghcr.io/sunnyskye/redbark-sure-sync:latest
 
 WORKDIR /app
 
@@ -10,6 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY audit_redbark_to_sure_duplicates.py ./
+COPY docker_entrypoint.py ./
 COPY generate_account_map.py ./
 COPY orchestrate_redbark_sync.py ./
 COPY redbark_export_transactions.py ./
@@ -21,4 +23,4 @@ COPY LICENSE ./
 
 RUN mkdir -p /app/exports /app/sure_exports /app/logs
 
-ENTRYPOINT ["python", "orchestrate_redbark_sync.py"]
+ENTRYPOINT ["python", "docker_entrypoint.py"]

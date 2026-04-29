@@ -59,13 +59,18 @@ This file is optimized for future LLMs and automation working in this repository
 ## Docker Packaging
 
 - `Dockerfile` packages the orchestrator as the container entrypoint.
-- Container entrypoint: `python orchestrate_redbark_sync.py`
+- Container entrypoint: `python docker_entrypoint.py`
 - GitHub Actions release workflow publishes the image to `ghcr.io/sunnyskye/redbark-sure-sync` on version tags.
 - Recommended runtime model: pass secrets with `--env-file` and mount only runtime artifacts.
+- First-time setup uses `docker_entrypoint.py map` to bootstrap account catalogs and launch `generate_account_map.py` interactively.
 - Runtime mounts should include:
   - `account_map.json` -> `/app/account_map.json` (read-only)
   - host `exports/` -> `/app/exports`
   - host `logs/` -> `/app/logs`
+- First-time map generation can mount the operator's working directory to `/runtime` and write:
+  - `/runtime/account_map.json`
+  - `/runtime/exports/`
+  - `/runtime/sure_exports/`
 - The image should not bake `.env` or runtime artifacts.
 - `.dockerignore` excludes secrets, logs, exports, caches, and local virtualenvs from the build context.
 - `account_map.json` is a runtime artifact and should not be committed.
@@ -74,6 +79,12 @@ Recommended run command in PowerShell:
 
 ```powershell
 docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:1.0 4
+```
+
+Recommended first-time account-map command in PowerShell:
+
+```powershell
+docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:1.0 map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
 Recommended dry-run command in PowerShell:

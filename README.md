@@ -154,6 +154,25 @@ Scheduler recommendations:
 
 The repository includes a `Dockerfile` for local image builds and a GitHub release workflow that publishes a ready-to-run image to GitHub Container Registry.
 
+The account map cannot be created during `docker build`. It depends on live RedBark and Sure account data plus your manual mapping choices, so the map has to be generated once at container runtime and saved on the host.
+
+### First-Time Docker Setup: Generate the Account Map
+
+Run the container in interactive `map` mode the first time:
+
+```powershell
+docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:1.0 map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+```
+
+What this does:
+
+- runs a RedBark export to create `/runtime/exports/accounts.json`
+- runs a Sure export to create `/runtime/sure_exports/accounts.json`
+- launches the interactive account mapper
+- writes `account_map.json` into your current host directory
+
+After that file exists, use the normal sync/orchestrator command.
+
 ### Run the Published Image
 
 No local build step is required after the `1.0` release is published.
@@ -177,6 +196,8 @@ What this does:
 - mounts `account_map.json` read-only into the container
 - persists `exports` and `logs` on the host
 
+If `account_map.json` is missing, the container now prints the interactive `map` command you should run first instead of only failing with a bare missing-file error.
+
 ### Required Local Runtime Files
 
 Before running the published image, make sure the current directory contains:
@@ -185,12 +206,15 @@ Before running the published image, make sure the current directory contains:
 - `account_map.json`
 - `exports/`
 - `logs/`
+- `sure_exports/` only matters for the first-time interactive `map` command
 
 If `exports/` or `logs/` do not exist yet, Docker will create them when they are bind-mounted.
 
 ### Why `account_map.json` Is Mounted Separately
 
 `account_map.json` is a runtime artifact, not a source file. It is intentionally ignored by git and should stay outside published release contents.
+
+The first-time `map` command mounts your current host directory at `/runtime` so the generated map and bootstrap exports persist after the container exits.
 
 ### Build the Image
 

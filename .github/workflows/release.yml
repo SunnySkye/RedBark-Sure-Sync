@@ -55,6 +55,12 @@ jobs:
           body: |
             ## Docker
 
+            First-time account-map setup:
+
+            ```powershell
+            docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+            ```
+
             Pull and run the published image without a local build step:
 
             ```powershell
