@@ -55,20 +55,22 @@ jobs:
           body: |
             ## Docker
 
-            First-time account-map setup:
+            From a checked-out copy of the repository, generate the account map once:
 
-            ```powershell
-            docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+            ```text
+            python docker_runner.py map --envfile .env --image ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }}
             ```
 
-            Pull and run the published image without a local build step:
+            If `--mapfile` is omitted during `map`, the wrapper prompts for the save location.
 
-            ```powershell
-            docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4
+            Then run the scheduled-safe sync command with the same `.env` file and the saved map file:
+
+            ```text
+            python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json --image ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }}
             ```
 
             Dry run:
 
-            ```powershell
-            docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --dry-run
+            ```text
+            python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json --dry-run --image ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }}
             ```

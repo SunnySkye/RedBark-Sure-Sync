@@ -44,6 +44,7 @@ Notes:
 - `sync_redbark_to_sure.py`: Read the RedBark export files and create missing Sure transactions.
 - `audit_redbark_to_sure_duplicates.py`: Check mapped Sure accounts for duplicate RedBark sync markers.
 - `orchestrate_redbark_sync.py`: Run export, sync, and duplicate audit in sequence.
+- `docker_runner.py`: Host-side helper that runs the Docker image with `--envfile` and `--mapfile` inputs instead of manual bind mounts.
 - `exports/`: RedBark account catalog and per-account transaction exports.
 - `sure_exports/`: Sure account catalog and per-account transaction exports.
 - `logs/`: Per-script log files and the orchestrator lock file.
@@ -154,109 +155,109 @@ Scheduler recommendations:
 
 The repository includes a `Dockerfile` for local image builds and a GitHub release workflow that publishes a ready-to-run image to GitHub Container Registry.
 
-The account map cannot be created during `docker build`. It depends on live RedBark and Sure account data plus your manual mapping choices, so the map has to be generated once at container runtime and saved on the host.
+The recommended Docker operator path is the host-side wrapper in `docker_runner.py`. It exposes the two inputs people actually care about:
 
-### First-Time Docker Setup: Generate the Account Map
+- `--envfile` for the host `.env` file
+- `--mapfile` for the host account map file used by scheduled sync runs
 
-Run the container in interactive `map` mode the first time:
+The wrapper builds the bind mounts for you, so the flow becomes:
 
-```powershell
-docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:1.0 map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+1. generate the map file once
+2. schedule the sync command with the same `.env` file and saved map file
+
+### 1. Generate the Map File
+
+Run the wrapper in `map` mode:
+
+```text
+python docker_runner.py map --envfile .env
+```
+
+If you omit `--mapfile`, the wrapper prompts for the save location.
+
+If you want to choose the path up front:
+
+```text
+python docker_runner.py map --envfile .env --mapfile /path/to/runtime/account_map.json
 ```
 
 What this does:
 
-- runs a RedBark export to create `/runtime/exports/accounts.json`
-- runs a Sure export to create `/runtime/sure_exports/accounts.json`
+- runs the container in interactive `map` mode
+- fetches the RedBark and Sure account catalogs needed for mapping
 - launches the interactive account mapper
-- writes `account_map.json` into your current host directory
+- writes the generated map file to the host path you chose
+- stores bootstrap `exports/`, `sure_exports/`, and `logs/` next to that map file on the host
 
-After that file exists, use the normal sync/orchestrator command.
+### 2. Run the Scheduled Sync
 
-### Run the Published Image
+Run the wrapper in `sync` mode:
 
-No local build step is required after the `1.0` release is published.
-
-Recommended PowerShell command:
-
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:1.0 4
+```text
+python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json
 ```
 
 Dry run:
 
-```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:1.0 4 --dry-run
+```text
+python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json --dry-run
 ```
 
 What this does:
 
-- uses the prebuilt image from GitHub Container Registry
-- passes runtime secrets from your local `.env` file without baking them into the image
-- mounts `account_map.json` read-only into the container
-- persists `exports` and `logs` on the host
+- mounts the selected map file read-only into the container
+- uses the map file's parent directory for host `exports/` and `logs/`
+- runs `orchestrate_redbark_sync.py` inside the container
+- keeps the scheduled command down to `.env` plus `--mapfile`
 
-If `account_map.json` is missing, the container now prints the interactive `map` command you should run first instead of only failing with a bare missing-file error.
+This is the intended command to hand to cron, launchd, or Task Scheduler.
 
-### Required Local Runtime Files
+### Runtime Files
 
-Before running the published image, make sure the current directory contains:
+The wrapper treats the map file's parent directory as the Docker runtime directory.
 
-- `.env`
-- `account_map.json`
-- `exports/`
-- `logs/`
-- `sure_exports/` only matters for the first-time interactive `map` command
+If your map file is stored at `/path/to/runtime/account_map.json`, the wrapper will keep these artifacts alongside it:
 
-If `exports/` or `logs/` do not exist yet, Docker will create them when they are bind-mounted.
+- `/path/to/runtime/account_map.json`
+- `/path/to/runtime/exports/`
+- `/path/to/runtime/sure_exports/` for the first-time map command
+- `/path/to/runtime/logs/`
 
-### Why `account_map.json` Is Mounted Separately
+`account_map.json` remains a runtime artifact. It is intentionally ignored by git and should stay outside published release contents.
 
-`account_map.json` is a runtime artifact, not a source file. It is intentionally ignored by git and should stay outside published release contents.
+### Choosing an Image
 
-The first-time `map` command mounts your current host directory at `/runtime` so the generated map and bootstrap exports persist after the container exits.
+The wrapper defaults to `ghcr.io/sunnyskye/redbark-sure-sync:latest`.
 
-### Build the Image
+To use a local build or a pinned tag, pass `--image`:
+
+```text
+python docker_runner.py sync --envfile .env --mapfile /path/to/runtime/account_map.json --image redbark-sure-sync
+```
+
+### Advanced: Raw `docker run`
+
+If you prefer to call Docker directly, the container still supports the lower-level commands.
+
+Build the image locally:
 
 ```powershell
 docker build -t redbark-sure-sync .
 ```
 
-### Run the Sync in Docker
-
-Recommended PowerShell command:
+Generate the map directly:
 
 ```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" redbark-sure-sync 4
+docker run -it --rm --env-file .env -v "${PWD}:/runtime" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --map-file /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
 ```
 
-What this does:
-
-- runs `orchestrate_redbark_sync.py` inside the container
-- passes runtime config through environment variables from `.env`
-- mounts the account map file into the expected path
-- keeps `exports` and `logs` on the host
-
-This mount pattern is intentional. It keeps the image immutable while preserving the runtime files the scripts need.
-
-### Dry Run in Docker
+Run the sync directly:
 
 ```powershell
-docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" redbark-sure-sync 4 --dry-run
+docker run --rm --env-file .env -v "${PWD}\account_map.json:/app/account_map.json:ro" -v "${PWD}\exports:/app/exports" -v "${PWD}\logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --map-file /app/account_map.json
 ```
 
-### Requirements for Docker Runs
-
-Before running the container, make sure the current directory already contains:
-
-- `.env`
-- `account_map.json`
-
-The container will fail if `account_map.json` is missing, just like the native orchestrator.
-
-### Alternative Docker Pattern
-
-If you prefer not to use `--env-file`, you can pass the environment variables directly with `-e`, but `--env-file .env` is the intended operator path.
+If you prefer not to use `--env-file`, you can pass the environment variables directly with `-e`, but `--env-file .env` remains the intended path.
 
 ## How Sync Deduplication Works
 
