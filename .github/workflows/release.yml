@@ -36,6 +36,7 @@ jobs:
         with:
           images: ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync
           tags: |
+            type=raw,value=latest
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
