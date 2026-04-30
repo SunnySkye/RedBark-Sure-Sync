@@ -8,5 +8,5 @@ __pycache__/
 .env
 account_map.json
 exports/
-sure_exports/
+sure-transactions/
 logs/

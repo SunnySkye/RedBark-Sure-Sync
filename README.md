@@ -28,24 +28,26 @@ REDBARK_API_KEY=your_redbark_api_key
 SURE_BASE_URL=https://your-sure-instance.example
 SURE_API_KEY=your_sure_api_key
 DUPLICATE_AUDIT_WEBHOOK_URL=https://discord.com/api/webhooks/...
+REDBARK_SURE_ACCOUNT_MAP_BASE64=
 ```
 
 Notes:
 
 - `DUPLICATE_AUDIT_WEBHOOK_URL` is optional.
+- `REDBARK_SURE_ACCOUNT_MAP_BASE64` is optional. If set, the sync and duplicate audit can use the account map from the environment instead of reading `account_map.json` from disk.
 - If the duplicate audit finds duplicates and the webhook is missing, the audit logs that alerting is unavailable but still fails because duplicates were found.
 - Secrets stay in `.env`, which is gitignored.
 
 ## Repository Layout
 
 - `redbark_export_transactions.py`: Export RedBark accounts and transactions into `exports/`.
-- `sure_export_transactions.py`: Export Sure accounts and transactions into `sure_exports/`.
+- `sure_export_transactions.py`: Export Sure accounts and transactions into `sure-transactions/`.
 - `generate_account_map.py`: Interactively create `account_map.json`.
 - `sync_redbark_to_sure.py`: Read the RedBark export files and create missing Sure transactions.
 - `audit_redbark_to_sure_duplicates.py`: Check mapped Sure accounts for duplicate RedBark sync markers.
 - `orchestrate_redbark_sync.py`: Run export, sync, and duplicate audit in sequence.
 - `exports/`: RedBark account catalog and per-account transaction exports.
-- `sure_exports/`: Sure account catalog and per-account transaction exports.
+- `sure-transactions/`: Sure account catalog and per-account transaction exports.
 - `logs/`: Per-script log files and the orchestrator lock file.
 
 ## Generated Artifacts
@@ -54,8 +56,8 @@ The scripts treat some directories as managed outputs.
 
 - `exports/accounts.json`: RedBark account catalog.
 - `exports/*.json`: One RedBark transaction export per account.
-- `sure_exports/accounts.json`: Sure account catalog.
-- `sure_exports/*.json`: One Sure transaction export per account.
+- `sure-transactions/accounts.json`: Sure account catalog.
+- `sure-transactions/*.json`: One Sure transaction export per account.
 - `account_map.json`: Interactive map between Sure and RedBark accounts.
 - `logs/*.log`: One log file per script, overwritten on each run of that script.
 - `logs/orchestrate_redbark_sync.lock`: Single-instance lock for the orchestrator.
@@ -81,8 +83,8 @@ This writes:
 
 This writes:
 
-- `sure_exports/accounts.json`
-- one JSON file per Sure account in `sure_exports/`
+- `sure-transactions/accounts.json`
+- one JSON file per Sure account in `sure-transactions/`
 
 ### 3. Build the Account Map
 
@@ -93,11 +95,15 @@ This writes:
 This script is interactive. It does not auto-match accounts. It reads:
 
 - `exports/accounts.json`
-- `sure_exports/accounts.json`
+- `sure-transactions/accounts.json`
+
+If either catalog is missing, the script now offers to run the existing export scripts for you so a fresh environment can bootstrap the required `accounts.json` files before mapping starts.
 
 It writes:
 
 - `account_map.json`
+
+After the file is written, the script also prints a `REDBARK_SURE_ACCOUNT_MAP_BASE64=...` line that you can copy into `.env` for Docker or other environments where mounting `account_map.json` is inconvenient.
 
 ### 4. Dry-Run the Sync
 
@@ -154,17 +160,20 @@ Scheduler recommendations:
 
 The repository includes a `Dockerfile` for local image builds and a GitHub release workflow that publishes a ready-to-run image to GitHub Container Registry.
 
+If you use the published image, the container can run on an arbitrary Linux machine with Docker. A host-side repo checkout is not required for the normal sync path.
+
 The supported Docker operator path is two raw `docker run` commands. You do not need a host-side Python wrapper.
 
 - `--env-file` stays a Docker option for loading the host `.env` file.
 - `--mapfile` is a container argument that tells the sync which mounted map file to use.
+- `REDBARK_SURE_ACCOUNT_MAP_BASE64` is an optional alternative to mounting `account_map.json`.
 
 The flow is:
 
 1. generate the map file once
 2. schedule the sync command with the same `.env` file and saved map file
 
-Choose one host runtime directory first. That directory holds the local `account_map.json`, `exports/`, `sure_exports/`, and `logs/` folders used by both commands.
+Choose one host runtime directory first. That directory holds the local `account_map.json`, `exports/`, `sure-transactions/`, and `logs/` folders used by both commands.
 
 The examples below use a deliberate runtime directory choice instead of the shell's current working directory.
 
@@ -173,6 +182,7 @@ On Linux/macOS shells, start by choosing one path you actually want to keep usin
 ```sh
 export RUNTIME_DIR="$HOME/redbark-sure-sync"
 export ENV_FILE="$HOME/redbark-sure-sync.env"
+export IMAGE="ghcr.io/sunnyskye/redbark-sure-sync:latest"
 ```
 
 If you are using PowerShell, choose an equivalent absolute path such as `$RUNTIME_DIR = "$HOME\redbark-sure-sync"`.
@@ -199,8 +209,47 @@ DUPLICATE_AUDIT_WEBHOOK_URL=https://discord.com/api/webhooks/...
 Notes:
 
 - `DUPLICATE_AUDIT_WEBHOOK_URL` is optional.
+- `REDBARK_SURE_ACCOUNT_MAP_BASE64` is optional. Paste the line printed by `generate_account_map.py` if you want Docker to receive the map through `--env-file` instead of a bind-mounted `account_map.json`.
 - The env file can live anywhere on the host as long as `--env-file` points to that exact path.
 - If you prefer a different location, change `ENV_FILE` and keep using the updated value in both Docker commands.
+
+### Linux Quick Start
+
+On a fresh Linux machine with Docker installed and running, the normal orchestrator path is:
+
+```sh
+export RUNTIME_DIR="$HOME/redbark-sure-sync"
+export ENV_FILE="$HOME/redbark-sure-sync.env"
+export IMAGE="ghcr.io/sunnyskye/redbark-sure-sync:latest"
+
+mkdir -p "$RUNTIME_DIR/exports" "$RUNTIME_DIR/logs"
+docker pull "$IMAGE"
+docker run --rm \
+	--env-file "$ENV_FILE" \
+	-v "$RUNTIME_DIR/exports:/app/exports" \
+	-v "$RUNTIME_DIR/logs:/app/logs" \
+	"$IMAGE" 4
+```
+
+What that command does:
+
+- runs `orchestrate_redbark_sync.py` inside the container
+- refreshes the RedBark export into the host `exports/` directory
+- syncs into Sure
+- runs the duplicate audit
+- leaves the logs on the host in `logs/`
+
+This exact command assumes your env file already contains `REDBARK_SURE_ACCOUNT_MAP_BASE64`. If it does not, generate `account_map.json` once with the interactive map flow below and mount it into the container.
+
+Dry run on Linux:
+
+```sh
+docker run --rm \
+	--env-file "$ENV_FILE" \
+	-v "$RUNTIME_DIR/exports:/app/exports" \
+	-v "$RUNTIME_DIR/logs:/app/logs" \
+	"$IMAGE" 4 --dry-run
+```
 
 ### 1. Generate the Map File
 
@@ -210,7 +259,7 @@ Run the container in interactive `map` mode:
 
 ```sh
 mkdir -p "$RUNTIME_DIR/logs"
-docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure-transactions
 ```
 
 What this does:
@@ -220,7 +269,7 @@ What this does:
 - launches the interactive account mapper
 - writes the local file `"$RUNTIME_DIR/account_map.json"`
 - stores bootstrap exports in `"$RUNTIME_DIR/exports"`
-- stores Sure bootstrap exports in `"$RUNTIME_DIR/sure_exports"`
+- stores Sure bootstrap exports in `"$RUNTIME_DIR/sure-transactions"`
 - stores logs in `"$RUNTIME_DIR/logs"`
 
 ### 2. Run the Scheduled Sync
@@ -228,13 +277,19 @@ What this does:
 Mount that same local map file back into the container:
 
 ```sh
-docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json
+docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" 4 --mapfile /app/account_map.json
+```
+
+If your env file already includes `REDBARK_SURE_ACCOUNT_MAP_BASE64`, you can run the orchestrator without mounting `account_map.json` at all:
+
+```sh
+docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" 4
 ```
 
 Dry run:
 
 ```sh
-docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest 4 --mapfile /app/account_map.json --dry-run
+docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" 4 --mapfile /app/account_map.json --dry-run
 ```
 
 What this does:
@@ -252,10 +307,12 @@ After step 1 completes, your host runtime directory should contain:
 
 - `$RUNTIME_DIR/account_map.json`
 - `$RUNTIME_DIR/exports/`
-- `$RUNTIME_DIR/sure_exports/`
+- `$RUNTIME_DIR/sure-transactions/`
 - `$RUNTIME_DIR/logs/`
 
 The scheduled sync command in step 2 must mount that exact local file path back into `/app/account_map.json`.
+
+If `REDBARK_SURE_ACCOUNT_MAP_BASE64` is set in the env file, the sync and duplicate audit can read the mapping from the environment instead, so mounting `account_map.json` becomes optional.
 
 Your env file stays outside the runtime directory and is passed through Docker with `--env-file "$ENV_FILE"`.
 
@@ -269,11 +326,13 @@ Build the image locally:
 docker build -t redbark-sure-sync .
 ```
 
+If the Linux machine does not have a local repo checkout, skip the local build and use `docker pull "$IMAGE"` instead.
+
 If you use the local image instead of GHCR, the same two commands become:
 
 ```sh
 mkdir -p "$RUNTIME_DIR/logs"
-docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" redbark-sure-sync map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure-transactions
 ```
 
 ```sh

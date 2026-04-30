@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from sync_redbark_to_sure import (
+    ACCOUNT_MAP_BASE64_ENV_VAR,
     ENV_FILE,
     SyncError,
     extract_sync_token,
@@ -65,7 +66,10 @@ def parse_args() -> argparse.Namespace:
         "--map-file",
         dest="map_file",
         default=str(DEFAULT_MAP_FILE),
-        help="Path to the interactive account map JSON. Default: account_map.json",
+        help=(
+            "Path to the interactive account map JSON. Default: account_map.json. "
+            f"If the file is missing, falls back to {ACCOUNT_MAP_BASE64_ENV_VAR} from the environment or .env."
+        ),
     )
     parser.add_argument(
         "--sure-base-url",
@@ -89,12 +93,6 @@ def parse_args() -> argparse.Namespace:
         help="HTTP timeout in seconds for Sure and Discord requests. Default: 30.",
     )
     return parser.parse_args()
-
-
-def require_file(path: Path, description: str) -> Path:
-    if not path.is_file():
-        raise DuplicateAuditError(f"{description} not found: {path}")
-    return path
 
 
 def require_env_value(value: str | None, message: str) -> str:
@@ -302,7 +300,7 @@ def main() -> int:
     load_env_file(ENV_FILE)
 
     try:
-        map_file = require_file(Path(args.map_file), "Account map file")
+        map_file = Path(args.map_file)
         sure_base_url = require_env_value(
             args.sure_base_url or os.environ.get("SURE_BASE_URL"),
             "Provide --sure-base-url or set SURE_BASE_URL in the environment or .env.",

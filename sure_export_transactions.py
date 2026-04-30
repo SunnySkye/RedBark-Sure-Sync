@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-DEFAULT_OUTPUT_DIR = Path("sure_exports")
+DEFAULT_OUTPUT_DIR = Path("sure-transactions")
 DEFAULT_LOG_FILE = Path("logs") / "sure_export_transactions.log"
 DEFAULT_TIMEOUT_SECONDS = 30
 PAGE_SIZE = 100

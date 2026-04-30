@@ -21,6 +21,6 @@ COPY README.md ./
 COPY LLM_CONTEXT.md ./
 COPY LICENSE ./
 
-RUN mkdir -p /app/exports /app/sure_exports /app/logs
+RUN mkdir -p /app/exports /app/sure-transactions /app/logs /runtime
 
 ENTRYPOINT ["python", "docker_entrypoint.py"]

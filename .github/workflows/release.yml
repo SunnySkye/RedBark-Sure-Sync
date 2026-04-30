@@ -55,9 +55,13 @@ jobs:
           body: |
             ## Docker
 
+            The published container image can run on an arbitrary Linux machine with Docker. A host-side repo checkout is not required for the normal orchestrator sync path.
+
             Choose one host runtime directory first. On macOS/Linux shells, an example is `export RUNTIME_DIR="$HOME/redbark-sure-sync"`. On PowerShell, choose an equivalent absolute path.
 
             Choose one env file path too. On macOS/Linux shells, an example is `export ENV_FILE="$HOME/redbark-sure-sync.env"`.
+
+            Choose one image reference too. On Linux/macOS shells, an example is `export IMAGE="ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }}"`.
 
             Before running the first Docker command, create the env file at `$ENV_FILE` with contents like:
 
@@ -70,13 +74,27 @@ jobs:
 
             `DUPLICATE_AUDIT_WEBHOOK_URL` is optional. The env file can live anywhere on the host as long as `--env-file` points to that exact path.
 
+            Linux quick start with the orchestrator and an env-based account map:
+
+            ```sh
+            export RUNTIME_DIR="$HOME/redbark-sure-sync"
+            export ENV_FILE="$HOME/redbark-sure-sync.env"
+            export IMAGE="ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }}"
+            mkdir -p "$RUNTIME_DIR/exports" "$RUNTIME_DIR/logs"
+            docker pull "$IMAGE"
+            docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" 4
+            ```
+
+            That command runs `orchestrate_redbark_sync.py` with a 4-day lookback. It assumes `REDBARK_SURE_ACCOUNT_MAP_BASE64` is already present in the env file.
+
             Generate the account map once:
 
             ```sh
             export RUNTIME_DIR="$HOME/redbark-sure-sync"
             export ENV_FILE="$HOME/redbark-sure-sync.env"
+            export IMAGE="ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }}"
             mkdir -p "$RUNTIME_DIR/logs"
-            docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+            docker run -it --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure-transactions
             ```
 
             That command writes the local file `"$RUNTIME_DIR/account_map.json"`.
@@ -84,11 +102,11 @@ jobs:
             Then run the scheduled-safe sync command with the same `.env` file and the saved map file:
 
             ```sh
-            docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --mapfile /app/account_map.json
+            docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" 4 --mapfile /app/account_map.json
             ```
 
             Dry run:
 
             ```sh
-            docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/${{ env.OWNER_LC }}/redbark-sure-sync:${{ steps.meta.outputs.version }} 4 --mapfile /app/account_map.json --dry-run
+            docker run --rm --env-file "$ENV_FILE" -v "$RUNTIME_DIR/account_map.json:/app/account_map.json:ro" -v "$RUNTIME_DIR/exports:/app/exports" -v "$RUNTIME_DIR/logs:/app/logs" "$IMAGE" 4 --mapfile /app/account_map.json --dry-run
             ```

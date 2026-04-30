@@ -4,11 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+from sync_redbark_to_sure import (
+    ACCOUNT_MAP_BASE64_ENV_VAR,
+    ENV_FILE,
+    SyncError,
+    format_sync_summary,
+    load_env_file,
+)
 
 
 DEFAULT_MAP_FILE = Path("account_map.json")
@@ -16,6 +25,7 @@ DEFAULT_OUTPUT_DIR = Path("exports")
 DEFAULT_LOG_FILE = Path("logs") / "orchestrate_redbark_sync.log"
 DEFAULT_LOCK_FILE = Path("logs") / "orchestrate_redbark_sync.lock"
 DEFAULT_DUPLICATE_AUDIT_SCRIPT = Path("audit_redbark_to_sure_duplicates.py")
+DEFAULT_SYNC_SUMMARY_FILE = Path("logs") / "sync_redbark_to_sure.summary.json"
 DEFAULT_TIMEOUT_SECONDS = 30
 LOGGER = logging.getLogger("orchestrate_redbark_sync")
 
@@ -127,7 +137,10 @@ def parse_args() -> argparse.Namespace:
         "--map-file",
         dest="map_file",
         default=str(DEFAULT_MAP_FILE),
-        help="Path to the required account map JSON file. Default: account_map.json",
+        help=(
+            "Path to the account map JSON file. Default: account_map.json. "
+            f"If the file is missing, falls back to {ACCOUNT_MAP_BASE64_ENV_VAR} from the environment or .env."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -185,6 +198,18 @@ def require_file(path: Path, description: str) -> Path:
     return path
 
 
+def resolve_map_source(path: Path) -> tuple[Path, str]:
+    if path.is_file():
+        return path, str(path)
+
+    if os.environ.get(ACCOUNT_MAP_BASE64_ENV_VAR):
+        return path, f"environment variable {ACCOUNT_MAP_BASE64_ENV_VAR}"
+
+    raise OrchestratorError(
+        f"Account map file not found: {path}. Provide --map-file or set {ACCOUNT_MAP_BASE64_ENV_VAR} in the environment or .env."
+    )
+
+
 def run_step(name: str, command: list[str], *, cwd: Path) -> None:
     LOGGER.info("Starting %s", name)
     LOGGER.debug("Running command: %s", subprocess.list2cmdline(command))
@@ -196,6 +221,32 @@ def run_step(name: str, command: list[str], *, cwd: Path) -> None:
     LOGGER.info("Completed %s", name)
 
 
+def load_sync_summary(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        raise OrchestratorError(f"Sync summary file not found: {path}")
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestratorError(f"Unable to read sync summary file: {path}") from exc
+
+    if not isinstance(payload, dict):
+        raise OrchestratorError(f"Unexpected sync summary format in {path}")
+
+    summary: dict[str, object] = {}
+    for key in ("created", "skipped", "warnings"):
+        value = payload.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise OrchestratorError(f"Sync summary is missing a valid {key} count in {path}")
+        summary[key] = value
+
+    dry_run = payload.get("dryRun")
+    if not isinstance(dry_run, bool):
+        raise OrchestratorError(f"Sync summary is missing a valid dryRun flag in {path}")
+    summary["dryRun"] = dry_run
+    return summary
+
+
 def main() -> int:
     args = parse_args()
     setup_logging(DEFAULT_LOG_FILE)
@@ -203,11 +254,14 @@ def main() -> int:
     LOGGER.info("Writing detailed logs to %s", DEFAULT_LOG_FILE.resolve())
 
     project_root = Path(__file__).resolve().parent
+    sync_summary: dict[str, object] | None = None
 
     try:
+        load_env_file(ENV_FILE)
         lock_file = resolve_path(project_root, args.lock_file)
-        map_file = require_file(resolve_path(project_root, args.map_file), "Account map file")
+        map_file, map_source = resolve_map_source(resolve_path(project_root, args.map_file))
         output_dir = resolve_path(project_root, args.output_dir)
+        sync_summary_file = resolve_path(project_root, str(DEFAULT_SYNC_SUMMARY_FILE))
         export_script = require_file(project_root / "redbark_export_transactions.py", "RedBark export script")
         sync_script = require_file(project_root / "sync_redbark_to_sure.py", "Sync script")
         duplicate_audit_script = require_file(
@@ -215,7 +269,7 @@ def main() -> int:
             "Duplicate audit script",
         )
 
-        LOGGER.info("Validated required account map file at %s", map_file)
+        LOGGER.info("Validated required account map input from %s", map_source)
         LOGGER.info("Using single-instance lock file at %s", lock_file)
 
         export_command = [
@@ -239,6 +293,8 @@ def main() -> int:
             str(output_dir),
             "--timeout",
             str(args.timeout),
+            "--summary-file",
+            str(sync_summary_file),
         ]
         if args.sure_base_url:
             sync_command.extend(["--sure-base-url", args.sure_base_url])
@@ -265,13 +321,28 @@ def main() -> int:
         with SingleInstanceLock(lock_file):
             run_step("RedBark export", export_command, cwd=project_root)
             run_step("RedBark to Sure sync", sync_command, cwd=project_root)
+            sync_summary = load_sync_summary(sync_summary_file)
             run_step("RedBark duplicate audit", audit_command, cwd=project_root)
 
+    except SyncError as exc:
+        LOGGER.error(str(exc))
+        return 1
     except OrchestratorError as exc:
         LOGGER.error(str(exc))
         return 1
 
-    LOGGER.info("Export and sync completed successfully")
+    if sync_summary is None:
+        LOGGER.error("Sync summary was not captured.")
+        return 1
+
+    LOGGER.info(
+        format_sync_summary(
+            created=int(sync_summary["created"]),
+            skipped=int(sync_summary["skipped"]),
+            warnings=int(sync_summary["warnings"]),
+            dry_run=bool(sync_summary["dryRun"]),
+        )
+    )
     return 0
 
 

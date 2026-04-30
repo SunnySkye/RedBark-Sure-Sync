@@ -11,11 +11,10 @@ from pathlib import Path
 
 
 DEFAULT_TIMEOUT_SECONDS = 30
-DEFAULT_SYNC_MAP_FILE = Path("account_map.json")
 DEFAULT_BOOTSTRAP_DAYS = 30
 DEFAULT_BOOTSTRAP_MAP_FILE = Path("/runtime/account_map.json")
 DEFAULT_BOOTSTRAP_REDBARK_EXPORT_DIR = Path("/runtime/exports")
-DEFAULT_BOOTSTRAP_SURE_EXPORT_DIR = Path("/runtime/sure_exports")
+DEFAULT_BOOTSTRAP_SURE_EXPORT_DIR = Path("/runtime/sure-transactions")
 IMAGE_REFERENCE_HINT = os.environ.get(
     "REDBARK_SURE_SYNC_IMAGE_HINT",
     "ghcr.io/sunnyskye/redbark-sure-sync:latest",
@@ -120,6 +119,9 @@ def parse_map_args(argv: list[str]) -> argparse.Namespace:
 def print_container_help() -> None:
     print("RedBark-Sure-Sync Docker entrypoint")
     print()
+    print("The published image can run on an arbitrary Linux machine with Docker and an env file.")
+    print("You do not need a repo checkout on the host when you use the GHCR image.")
+    print()
     print("Usage:")
     print("  docker run --rm ... <image> [orchestrator-args]")
     print("  docker run -it --rm ... <image> map [map-args]")
@@ -130,117 +132,40 @@ def print_container_help() -> None:
     print()
     print("Choose one host runtime directory first, for example /absolute/path/to/redbark-runtime.")
     print("Choose one host env file path too, for example /absolute/path/to/redbark-sure-sync.env.")
-    print("The map command writes the local file /absolute/path/to/redbark-runtime/account_map.json.")
+    print()
+    print("Linux quick start:")
+    print(f"  docker pull {IMAGE_REFERENCE_HINT}")
+    print(
+        "  docker run --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" "
+        "-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
+        "-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
+        f"{IMAGE_REFERENCE_HINT} 4"
+    )
     print()
     print("First-time setup example:")
     print(
         "  docker run -it --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" -v \"/absolute/path/to/redbark-runtime:/runtime\" "
         f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
         "map 30 --mapfile /runtime/account_map.json "
-        "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports"
+        "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure-transactions"
     )
     print()
-    print("Normal sync example:")
+    print("Normal sync example with an env-based account map:")
+    print(
+        "  docker run --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" "
+        f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
+        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
+        f"{IMAGE_REFERENCE_HINT} 4"
+    )
+    print("  That command runs orchestrate_redbark_sync.py with a 4-day lookback.")
+    print()
+    print("Normal sync example with a mounted account map file:")
     print(
         "  docker run --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" "
         f"-v \"/absolute/path/to/redbark-runtime/account_map.json:/app/account_map.json:ro\" "
         f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
         f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
         f"{IMAGE_REFERENCE_HINT} 4 --mapfile /app/account_map.json"
-    )
-
-
-def format_sync_args(args: list[str]) -> str:
-    if not args:
-        return "1"
-    return " ".join(args)
-
-
-def option_value(args: list[str], option_name: str) -> str | None:
-    prefix = f"{option_name}="
-    for index, argument in enumerate(args):
-        if argument == option_name:
-            if index + 1 < len(args):
-                return args[index + 1]
-            return None
-        if argument.startswith(prefix):
-            return argument[len(prefix) :]
-    return None
-
-
-def without_options(args: list[str], option_names: set[str]) -> list[str]:
-    cleaned_args: list[str] = []
-    skip_next = False
-
-    for argument in args:
-        if skip_next:
-            skip_next = False
-            continue
-
-        if argument in option_names:
-            skip_next = True
-            continue
-
-        if any(argument.startswith(f"{name}=") for name in option_names):
-            continue
-
-        cleaned_args.append(argument)
-
-    return cleaned_args
-
-
-def print_missing_map_guidance(map_file: Path, sync_args: list[str]) -> None:
-    rerun_args = without_options(sync_args, {"--mapfile", "--map-file"})
-
-    print(f"Account map file not found: {map_file}", file=sys.stderr)
-    print(file=sys.stderr)
-    print(
-        "This container cannot prebuild account_map.json during docker build because the "
-        "file depends on live API data and your manual account choices.",
-        file=sys.stderr,
-    )
-    print(
-        "Generate it once with the interactive map mode, save it on the host, then rerun "
-        "the sync command.",
-        file=sys.stderr,
-    )
-    print(file=sys.stderr)
-    print(
-        "Choose one host runtime directory first, for example /absolute/path/to/redbark-runtime.",
-        file=sys.stderr,
-    )
-    print(
-        "Choose one host env file path too, for example /absolute/path/to/redbark-sure-sync.env.",
-        file=sys.stderr,
-    )
-    print(
-        "That first command writes the local file /absolute/path/to/redbark-runtime/account_map.json.",
-        file=sys.stderr,
-    )
-    print(file=sys.stderr)
-    print("First-time account-map setup:", file=sys.stderr)
-    print(
-        "  docker run -it --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" -v \"/absolute/path/to/redbark-runtime:/runtime\" "
-        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" {IMAGE_REFERENCE_HINT} "
-        "map 30 --mapfile /runtime/account_map.json "
-        "--redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports",
-        file=sys.stderr,
-    )
-    print(file=sys.stderr)
-    print("Then rerun your sync/orchestrator command:", file=sys.stderr)
-    print(
-        "  docker run --rm --env-file \"/absolute/path/to/redbark-sure-sync.env\" "
-        f"-v \"/absolute/path/to/redbark-runtime/account_map.json:/app/account_map.json:ro\" "
-        f"-v \"/absolute/path/to/redbark-runtime/exports:/app/exports\" "
-        f"-v \"/absolute/path/to/redbark-runtime/logs:/app/logs\" "
-        f"{IMAGE_REFERENCE_HINT} {format_sync_args(rerun_args)} --mapfile /app/account_map.json",
-        file=sys.stderr,
-    )
-    print(file=sys.stderr)
-    print(
-        "If you want a different local path, replace every /absolute/path/to/redbark-runtime "
-        "with your chosen host directory.",
-        file=sys.stderr,
     )
 
 
@@ -299,15 +224,6 @@ def run_map_mode(project_root: Path, argv: list[str]) -> int:
 
 
 def run_sync_mode(project_root: Path, argv: list[str]) -> int:
-    map_file_arg = (
-        option_value(argv, "--mapfile")
-        or option_value(argv, "--map-file")
-        or str(DEFAULT_SYNC_MAP_FILE)
-    )
-    map_file = resolve_path(project_root, map_file_arg)
-    if not map_file.is_file():
-        print_missing_map_guidance(map_file, argv)
-        return 1
     return run_python_script(project_root, "orchestrate_redbark_sync.py", argv)
 
 

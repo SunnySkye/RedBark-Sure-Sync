@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_REDBARK_ACCOUNTS_FILE = Path("exports") / "accounts.json"
-DEFAULT_SURE_ACCOUNTS_FILE = Path("sure_exports") / "accounts.json"
+DEFAULT_SURE_ACCOUNTS_FILE = Path("sure-transactions") / "accounts.json"
 DEFAULT_OUTPUT_FILE = Path("account_map.json")
+ACCOUNT_MAP_BASE64_ENV_VAR = "REDBARK_SURE_ACCOUNT_MAP_BASE64"
+DEFAULT_BOOTSTRAP_DAYS = 1
 
 
 class AccountMapError(RuntimeError):
@@ -35,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sure-accounts-file",
         default=str(DEFAULT_SURE_ACCOUNTS_FILE),
-        help="Path to the Sure account catalog JSON. Default: sure_exports/accounts.json",
+        help="Path to the Sure account catalog JSON. Default: sure-transactions/accounts.json",
     )
     parser.add_argument(
         "--output-file",
@@ -124,6 +129,129 @@ def print_header(title: str) -> None:
     print()
     print(title)
     print("-" * len(title))
+
+
+def prompt_yes_no(prompt: str, *, default: bool) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+
+    while True:
+        answer = input(f"{prompt} {suffix}: ").strip().lower()
+        if not answer:
+            return default
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"n", "no"}:
+            return False
+        print("Enter 'y' or 'n'.")
+
+
+def prompt_bootstrap_days(default_days: int = DEFAULT_BOOTSTRAP_DAYS) -> int:
+    while True:
+        answer = input(
+            "How many days of transactions should the bootstrap exports pull? "
+            f"[{default_days}]: "
+        ).strip()
+        if not answer:
+            return default_days
+
+        try:
+            days = int(answer)
+        except ValueError:
+            print("Enter a whole number of days greater than or equal to 1.")
+            continue
+
+        if days < 1:
+            print("Enter a whole number of days greater than or equal to 1.")
+            continue
+
+        return days
+
+
+def run_python_script(script_name: str, script_args: list[str]) -> None:
+    project_root = Path(__file__).resolve().parent
+    script_path = project_root / script_name
+    if not script_path.is_file():
+        raise AccountMapError(f"Required helper script not found: {script_path}")
+
+    command = [sys.executable, str(script_path), *script_args]
+    print()
+    print(f"Running {script_name}...")
+    exit_code = subprocess.run(command, cwd=project_root, check=False).returncode
+    if exit_code != 0:
+        raise AccountMapError(f"{script_name} failed with exit code {exit_code}.")
+
+
+def generate_catalog(script_name: str, requested_catalog_file: Path, days: int) -> None:
+    output_dir = requested_catalog_file.parent
+    generated_catalog_file = output_dir / "accounts.json"
+
+    run_python_script(
+        script_name,
+        [
+            str(days),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    if not generated_catalog_file.is_file():
+        raise AccountMapError(
+            f"{script_name} completed but did not create {generated_catalog_file}"
+        )
+
+    if requested_catalog_file.name != "accounts.json":
+        requested_catalog_file.parent.mkdir(parents=True, exist_ok=True)
+        requested_catalog_file.write_text(
+            generated_catalog_file.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+
+def ensure_account_catalogs(
+    redbark_accounts_file: Path,
+    sure_accounts_file: Path,
+) -> None:
+    missing_catalogs: list[tuple[str, Path, str]] = []
+
+    if not redbark_accounts_file.is_file():
+        missing_catalogs.append(
+            ("RedBark", redbark_accounts_file, "redbark_export_transactions.py")
+        )
+    if not sure_accounts_file.is_file():
+        missing_catalogs.append(
+            ("Sure", sure_accounts_file, "sure_export_transactions.py")
+        )
+
+    if not missing_catalogs:
+        return
+
+    print_header("Missing Account Catalogs")
+    for catalog_name, catalog_path, _ in missing_catalogs:
+        print(f"- {catalog_name} account catalog not found: {catalog_path}")
+
+    print()
+    print("generate_account_map.py can run the existing export scripts to create the missing accounts.json file(s).")
+    print("Those scripts also refresh the per-account transaction export files.")
+
+    if not sys.stdin.isatty():
+        raise AccountMapError(
+            "Account catalog files are missing and automatic recovery requires an interactive terminal. "
+            "Run redbark_export_transactions.py and sure_export_transactions.py first, or rerun generate_account_map.py interactively."
+        )
+
+    if not prompt_yes_no("Generate the missing account catalog file(s) now?", default=True):
+        missing_paths = ", ".join(str(catalog_path) for _, catalog_path, _ in missing_catalogs)
+        raise AccountMapError(
+            f"Required account catalog file(s) are missing: {missing_paths}"
+        )
+
+    days = prompt_bootstrap_days()
+
+    for _, catalog_path, script_name in missing_catalogs:
+        generate_catalog(script_name, catalog_path, days)
+
+    print()
+    print("Missing account catalog generation complete.")
 
 
 def choose_mappings(
@@ -249,6 +377,11 @@ def write_map_file(output_file: Path, payload: dict[str, Any]) -> None:
     output_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def encode_map_payload(payload: dict[str, Any]) -> str:
+    compact_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.b64encode(compact_json).decode("ascii")
+
+
 def main() -> int:
     args = parse_args()
     redbark_accounts_file = Path(args.redbark_accounts_file)
@@ -256,6 +389,7 @@ def main() -> int:
     output_file = Path(args.output_file)
 
     try:
+        ensure_account_catalogs(redbark_accounts_file, sure_accounts_file)
         redbark_accounts = load_redbark_accounts(redbark_accounts_file)
         sure_accounts = load_sure_accounts(sure_accounts_file)
         mappings, unmapped_sure_accounts, unmapped_redbark_accounts = choose_mappings(
@@ -276,6 +410,7 @@ def main() -> int:
             unmapped_redbark_accounts=unmapped_redbark_accounts,
         )
         write_map_file(output_file, payload)
+        encoded_payload = encode_map_payload(payload)
     except AccountMapAborted as exc:
         print(str(exc))
         return 1
@@ -284,6 +419,9 @@ def main() -> int:
         return 1
 
     print(f"Account map written to {output_file}")
+    print()
+    print("To pass the account map through Docker or a .env file instead of mounting account_map.json, add this line:")
+    print(f"{ACCOUNT_MAP_BASE64_ENV_VAR}={encoded_payload}")
     return 0
 
 

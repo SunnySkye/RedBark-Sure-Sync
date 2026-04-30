@@ -44,14 +44,15 @@ This file is optimized for future LLMs and automation working in this repository
 - `SURE_BASE_URL`: required for Sure export, sync, and duplicate audit.
 - `SURE_API_KEY`: required for Sure export, sync, and duplicate audit.
 - `DUPLICATE_AUDIT_WEBHOOK_URL`: optional for duplicate alerting.
+- `REDBARK_SURE_ACCOUNT_MAP_BASE64`: optional base64-encoded `account_map.json` payload for sync/audit/orchestrator runs without a mounted map file.
 
 ## Entry Points
 
 | File | Responsibility | Inputs | Outputs |
 | --- | --- | --- | --- |
 | `redbark_export_transactions.py` | Export RedBark account catalog and per-account transaction files | `.env`, RedBark API, day lookback | `exports/accounts.json`, `exports/*.json`, `logs/redbark_export_transactions.log` |
-| `sure_export_transactions.py` | Export Sure account catalog and per-account transaction files | `.env`, Sure API, day lookback | `sure_exports/accounts.json`, `sure_exports/*.json`, `logs/sure_export_transactions.log` |
-| `generate_account_map.py` | Interactively map Sure accounts to RedBark accounts | `exports/accounts.json`, `sure_exports/accounts.json` | `account_map.json` |
+| `sure_export_transactions.py` | Export Sure account catalog and per-account transaction files | `.env`, Sure API, day lookback | `sure-transactions/accounts.json`, `sure-transactions/*.json`, `logs/sure_export_transactions.log` |
+| `generate_account_map.py` | Interactively map Sure accounts to RedBark accounts | `exports/accounts.json`, `sure-transactions/accounts.json` | `account_map.json` |
 | `sync_redbark_to_sure.py` | Create missing Sure transactions from RedBark exports | `.env`, `account_map.json`, `exports/*.json` | Sure transactions, `logs/sync_redbark_to_sure.log` |
 | `audit_redbark_to_sure_duplicates.py` | Detect duplicate RedBark sync markers in Sure | `.env`, `account_map.json`, Sure API | exit code, optional Discord alert, `logs/audit_redbark_to_sure_duplicates.log` |
 | `orchestrate_redbark_sync.py` | Run export, sync, and audit in sequence with overlap protection | `.env`, `account_map.json`, lock file | managed exports, sync attempt, audit result, `logs/orchestrate_redbark_sync.log` |
@@ -71,7 +72,7 @@ This file is optimized for future LLMs and automation working in this repository
 - First-time map generation can mount the operator's working directory to `/runtime` and write:
   - `/runtime/account_map.json`
   - `/runtime/exports/`
-  - `/runtime/sure_exports/`
+  - `/runtime/sure-transactions/`
 - The image should not bake `.env` or runtime artifacts.
 - `.dockerignore` excludes secrets, logs, exports, caches, and local virtualenvs from the build context.
 - `account_map.json` is a runtime artifact and should not be committed.
@@ -81,7 +82,7 @@ This file is optimized for future LLMs and automation working in this repository
 ```sh
 export RUNTIME_DIR="$HOME/redbark-sure-sync"
 mkdir -p "$RUNTIME_DIR/logs"
-docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure_exports
+docker run -it --rm --env-file .env -v "$RUNTIME_DIR:/runtime" -v "$RUNTIME_DIR/logs:/app/logs" ghcr.io/sunnyskye/redbark-sure-sync:latest map 30 --mapfile /runtime/account_map.json --redbark-export-dir /runtime/exports --sure-export-dir /runtime/sure-transactions
 ```
 
 The local map file created by that command is `"$RUNTIME_DIR/account_map.json"`.
@@ -109,11 +110,11 @@ docker run --rm --env-file .env -v "$RUNTIME_DIR/account_map.json:/app/account_m
     - `redbarkAccount`
 - `exports/accounts.json`
   - RedBark account catalog
-- `sure_exports/accounts.json`
+- `sure-transactions/accounts.json`
   - Sure account catalog
 - `exports/*.json`
   - RedBark per-account transaction exports
-- `sure_exports/*.json`
+- `sure-transactions/*.json`
   - Sure per-account transaction exports
 
 ## Sync Rules

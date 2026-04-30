@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 from collections import Counter
 import json
 import logging
@@ -25,6 +27,7 @@ DEFAULT_TIMEOUT_SECONDS = 30
 SURE_PAGE_SIZE = 100
 MAX_RETRIES = 5
 ENV_FILE = Path(__file__).resolve().with_name(".env")
+ACCOUNT_MAP_BASE64_ENV_VAR = "REDBARK_SURE_ACCOUNT_MAP_BASE64"
 SYNC_TOKEN_PATTERN = re.compile(r"\[redbark:(?P<id>bank_tx_[^\]]+)\]")
 LOGGER = logging.getLogger("sync_redbark_to_sure")
 
@@ -93,6 +96,37 @@ def load_env_file(env_path: Path) -> None:
     LOGGER.debug("Loaded %d environment variable(s) from %s", loaded_keys, env_path)
 
 
+def format_sync_summary(*, created: int, skipped: int, warnings: int, dry_run: bool) -> str:
+    prefix = "Dry-run sync finished." if dry_run else "Sync finished."
+    return (
+        f"{prefix} Created {created} transaction(s), "
+        f"skipped {skipped} existing transaction(s), emitted {warnings} warning(s)."
+    )
+
+
+def build_sync_summary(*, created: int, skipped: int, warnings: int, dry_run: bool) -> dict[str, Any]:
+    return {
+        "created": created,
+        "skipped": skipped,
+        "warnings": warnings,
+        "dryRun": dry_run,
+        "message": format_sync_summary(
+            created=created,
+            skipped=skipped,
+            warnings=warnings,
+            dry_run=dry_run,
+        ),
+    }
+
+
+def write_sync_summary(summary_file: Path, summary: dict[str, Any]) -> None:
+    try:
+        summary_file.parent.mkdir(parents=True, exist_ok=True)
+        summary_file.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise SyncError(f"Unable to write sync summary file: {summary_file}") from exc
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -104,7 +138,10 @@ def parse_args() -> argparse.Namespace:
         "--map-file",
         dest="map_file",
         default=str(DEFAULT_MAP_FILE),
-        help="Path to the interactive account map JSON. Default: account_map.json",
+        help=(
+            "Path to the interactive account map JSON. Default: account_map.json. "
+            f"If the file is missing, falls back to {ACCOUNT_MAP_BASE64_ENV_VAR} from the environment or .env."
+        ),
     )
     parser.add_argument(
         "--redbark-export-dir",
@@ -132,6 +169,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Log what would be created without sending POST requests to Sure.",
     )
+    parser.add_argument(
+        "--summary-file",
+        help="Optional JSON file to write with the final sync totals.",
+    )
     return parser.parse_args()
 
 
@@ -145,26 +186,51 @@ def load_json_file(path: Path) -> Any:
         raise SyncError(f"Invalid JSON in file: {path}") from exc
 
 
-def load_map_file(path: Path) -> tuple[dict[str, Any], list[MappedAccount]]:
-    payload = load_json_file(path)
+def decode_map_base64(encoded_value: str) -> Any:
+    try:
+        payload_bytes = base64.b64decode(encoded_value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise SyncError(
+            f"Invalid base64 content in {ACCOUNT_MAP_BASE64_ENV_VAR}."
+        ) from exc
+
+    try:
+        payload_text = payload_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SyncError(
+            f"Decoded {ACCOUNT_MAP_BASE64_ENV_VAR} is not valid UTF-8 JSON text."
+        ) from exc
+
+    try:
+        return json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise SyncError(
+            f"Decoded {ACCOUNT_MAP_BASE64_ENV_VAR} does not contain valid JSON."
+        ) from exc
+
+
+def normalize_map_payload(
+    payload: Any,
+    source_description: str,
+) -> tuple[dict[str, Any], list[MappedAccount]]:
     if not isinstance(payload, dict):
-        raise SyncError(f"Unexpected map file format in {path}")
+        raise SyncError(f"Unexpected map file format in {source_description}")
 
     mappings = payload.get("mappings")
     if not isinstance(mappings, list):
-        raise SyncError(f"Map file is missing a mappings array in {path}")
+        raise SyncError(f"Map file is missing a mappings array in {source_description}")
 
     normalized_mappings: list[MappedAccount] = []
     for index, mapping in enumerate(mappings, start=1):
         if not isinstance(mapping, dict):
-            raise SyncError(f"Map entry {index} in {path} is not an object")
+            raise SyncError(f"Map entry {index} in {source_description} is not an object")
 
         sure_account = mapping.get("sureAccount")
         redbark_connection = mapping.get("redbarkConnection")
         redbark_account = mapping.get("redbarkAccount")
 
         if not isinstance(sure_account, dict) or not isinstance(redbark_connection, dict) or not isinstance(redbark_account, dict):
-            raise SyncError(f"Map entry {index} in {path} is missing account metadata")
+            raise SyncError(f"Map entry {index} in {source_description} is missing account metadata")
 
         normalized_mappings.append(
             MappedAccount(
@@ -175,9 +241,35 @@ def load_map_file(path: Path) -> tuple[dict[str, Any], list[MappedAccount]]:
         )
 
     if not normalized_mappings:
-        raise SyncError(f"Map file contains no mapped accounts: {path}")
+        raise SyncError(f"Map file contains no mapped accounts: {source_description}")
 
     return payload, normalized_mappings
+
+
+def load_map_file(path: Path) -> tuple[dict[str, Any], list[MappedAccount]]:
+    if path.is_file():
+        payload = load_json_file(path)
+        return normalize_map_payload(payload, str(path))
+
+    encoded_map = os.environ.get(ACCOUNT_MAP_BASE64_ENV_VAR)
+    if encoded_map:
+        payload = decode_map_base64(encoded_map)
+        return normalize_map_payload(
+            payload,
+            f"environment variable {ACCOUNT_MAP_BASE64_ENV_VAR}",
+        )
+
+    raise SyncError(
+        f"Account map file not found: {path}. Provide --map-file or set {ACCOUNT_MAP_BASE64_ENV_VAR} in the environment or .env."
+    )
+
+
+def describe_map_source(path: Path) -> str:
+    if path.is_file():
+        return str(path)
+    if os.environ.get(ACCOUNT_MAP_BASE64_ENV_VAR):
+        return f"environment variable {ACCOUNT_MAP_BASE64_ENV_VAR}"
+    return str(path)
 
 
 def resolve_redbark_export_dir(map_file_path: Path, map_payload: dict[str, Any], cli_value: str | None) -> Path:
@@ -697,20 +789,20 @@ def main() -> int:
         return 1
 
     map_file = Path(args.map_file)
+    total_created = 0
+    total_skipped = 0
+    total_warnings = 0
 
     try:
         map_payload, mappings = load_map_file(map_file)
+        map_source = describe_map_source(map_file)
         redbark_export_dir = resolve_redbark_export_dir(map_file, map_payload, args.redbark_export_dir)
         redbark_export_index = load_redbark_export_index(redbark_export_dir)
 
-        LOGGER.info("Loaded %d mapped account pair(s) from %s", len(mappings), map_file)
+        LOGGER.info("Loaded %d mapped account pair(s) from %s", len(mappings), map_source)
         LOGGER.info("Loaded %d RedBark account export file(s) from %s", len(redbark_export_index), redbark_export_dir)
         if args.dry_run:
             LOGGER.info("Dry-run mode enabled; no Sure transactions will be created")
-
-        total_created = 0
-        total_skipped = 0
-        total_warnings = 0
 
         mapped_redbark_ids = set()
         for mapping in mappings:
@@ -748,16 +840,20 @@ def main() -> int:
                 redbark_account_id,
             )
 
+        summary = build_sync_summary(
+            created=total_created,
+            skipped=total_skipped,
+            warnings=total_warnings,
+            dry_run=args.dry_run,
+        )
+        if args.summary_file:
+            write_sync_summary(Path(args.summary_file), summary)
+
     except SyncError as exc:
         LOGGER.error(str(exc))
         return 1
 
-    LOGGER.info(
-        "Sync finished. Created %d transaction(s), skipped %d existing transaction(s), emitted %d warning(s).",
-        total_created,
-        total_skipped,
-        total_warnings,
-    )
+    LOGGER.info(summary["message"])
     return 0
 
 
